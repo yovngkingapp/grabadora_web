@@ -3,79 +3,85 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Grabadora Aula Pro</title>
+<title>Grabadora de Aula Pro</title>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
 
 <style>
 :root {
     --bg:#121212; --card:#1e1e1e; --text:#e0e0e0;
     --accent:#3d5afe; --danger:#ff5252; --success:#00e676; --warning:#ffea00;
 }
-body {
-    font-family: sans-serif;
-    background: var(--bg);
-    color: var(--text);
-    margin:0;
-    padding:15px;
+body { 
+    font-family: 'Segoe UI', Roboto, sans-serif; 
+    background: var(--bg); color: var(--text); 
+    margin:0; padding:15px; display:flex; justify-content:center;
 }
 .app-card {
-    max-width:800px;
-    margin:auto;
+    width:100%; max-width:800px;
     background:var(--card);
-    padding:20px;
-    border-radius:15px;
+    border-radius:20px;
+    padding:25px;
 }
+h1 { text-align:center; }
 #output {
-    height:300px;
-    overflow:auto;
+    height:450px;
+    border:1px solid #333;
+    border-radius:12px;
+    padding:20px;
+    overflow-y:auto;
     background:#000;
-    padding:10px;
-    margin-bottom:10px;
+    margin-bottom:20px;
+}
+.controls {
+    display:grid;
+    grid-template-columns:1fr 1fr;
+    gap:15px;
 }
 button {
-    padding:15px;
+    padding:20px;
     border:none;
-    border-radius:10px;
+    border-radius:15px;
     font-weight:bold;
 }
+.btn-start { background:var(--success); color:#000; grid-column:span 2; }
+.btn-pause { background:var(--warning); color:#000; }
+.btn-stop { background:var(--danger); color:#fff; }
+.btn-download { background:var(--accent); color:#fff; grid-column:span 2; }
 </style>
 </head>
 
 <body>
 
 <div class="app-card">
-<h2>Grabadora + Transcripción</h2>
+<h1>Grabadora de Aula & Transcripción</h1>
 
 <div id="status">● Standby</div>
 <div id="timer">00:00:00</div>
 
 <div id="output"></div>
 
-<button id="startBtn">INICIAR</button>
-<button id="pauseBtn" disabled>PAUSAR</button>
-<button id="stopBtn" disabled>DETENER</button>
-<button id="downloadBtn" style="display:none;">DESCARGAR</button>
-
+<div class="controls">
+<button id="startBtn" class="btn-start">INICIAR</button>
+<button id="pauseBtn" class="btn-pause" disabled>PAUSAR</button>
+<button id="stopBtn" class="btn-stop" disabled>DETENER</button>
+<button id="downloadBtn" class="btn-download" style="display:none;">DESCARGAR ZIP</button>
+</div>
 </div>
 
 <script>
 
-// ----------- VARIABLES -----------
-
+// ---------- VARIABLES ----------
 let recognition = null;
-let mediaRecorder;
-let chunks = [];
+let mediaRecorder, chunks = [];
 let fullText = "";
-let isRecording = false;
-let isPaused = false;
-
-let startTime, timerId, elapsed = 0;
+let isRecording = false, isPaused = false;
+let startTime, elapsed = 0, timerId;
 
 const output = document.getElementById("output");
 
-// ----------- SPEECH API (COMPATIBLE) -----------
-
+// ---------- SPEECH ----------
 const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
 
 if (SpeechRecognition) {
@@ -108,19 +114,14 @@ if (SpeechRecognition) {
             try { recognition.start(); } catch(e){}
         }
     };
-
-} else {
-    alert("Este dispositivo NO soporta transcripción automática.");
 }
 
-// ----------- GRABACIÓN -----------
-
+// ---------- START ----------
 async function startSession() {
 
     const stream = await navigator.mediaDevices.getUserMedia({ audio:true });
 
     mediaRecorder = new MediaRecorder(stream);
-
     chunks = [];
 
     mediaRecorder.ondataavailable = e => {
@@ -135,98 +136,106 @@ async function startSession() {
 
     isRecording = true;
     isPaused = false;
-
     startTime = Date.now() - elapsed;
 
-    timerId = setInterval(updateTimer,1000);
+    timerId = setInterval(updateTimer, 1000);
 
-    document.getElementById("status").innerText = "● GRABANDO";
+    status.innerText = "● GRABANDO";
     startBtn.disabled = true;
     pauseBtn.disabled = false;
     stopBtn.disabled = false;
 }
 
-// ----------- TIMER -----------
-
-function updateTimer(){
-    if(isPaused) return;
+// ---------- TIMER ----------
+function updateTimer() {
+    if (isPaused) return;
 
     const diff = Date.now() - startTime;
     elapsed = diff;
 
-    const h = String(Math.floor(diff/3600000)).padStart(2,"0");
-    const m = String(Math.floor((diff%3600000)/60000)).padStart(2,"0");
-    const s = String(Math.floor((diff%60000)/1000)).padStart(2,"0");
+    const h = String(Math.floor(diff/3600000)).padStart(2,'0');
+    const m = String(Math.floor((diff%3600000)/60000)).padStart(2,'0');
+    const s = String(Math.floor((diff%60000)/1000)).padStart(2,'0');
 
-    document.getElementById("timer").innerText = `${h}:${m}:${s}`;
+    timer.innerText = `${h}:${m}:${s}`;
 }
 
-// ----------- PAUSA -----------
-
+// ---------- PAUSA ----------
 pauseBtn.onclick = () => {
-
-    if(!isPaused){
+    if (!isPaused) {
         isPaused = true;
         mediaRecorder.pause();
-        if(recognition) recognition.stop();
+        if (recognition) recognition.stop();
         pauseBtn.innerText = "REANUDAR";
     } else {
         isPaused = false;
         mediaRecorder.resume();
-        if(recognition){
-            try{ recognition.start(); } catch(e){}
+        if (recognition) {
+            try { recognition.start(); } catch(e){}
         }
         startTime = Date.now() - elapsed;
         pauseBtn.innerText = "PAUSAR";
     }
-
 };
 
-// ----------- STOP -----------
-
+// ---------- STOP ----------
 stopBtn.onclick = () => {
-
     isRecording = false;
-
     mediaRecorder.stop();
-    if(recognition) recognition.stop();
+    if (recognition) recognition.stop();
 
     clearInterval(timerId);
 
-    document.getElementById("status").innerText = "FINALIZADO";
+    status.innerText = "FINALIZADO";
     downloadBtn.style.display = "block";
-
 };
 
-// ----------- DESCARGA -----------
+// ---------- DESCARGA ZIP ----------
+downloadBtn.onclick = async () => {
 
-downloadBtn.onclick = () => {
-
+    const zip = new JSZip();
     const name = "Clase_" + Date.now();
 
-    // AUDIO (compatible móvil)
-    const blob = new Blob(chunks, { type:"audio/webm" });
-    const url = URL.createObjectURL(blob);
-    window.open(url);
+    // AUDIO
+    const audioBlob = new Blob(chunks, { type: "audio/webm" });
+    zip.file(name + ".webm", audioBlob);
 
     // PDF
     const { jsPDF } = window.jspdf;
     const doc = new jsPDF();
 
-    doc.text("Transcripción",10,10);
-
-    const lines = doc.splitTextToSize(output.innerText,180);
-    doc.text(lines,10,20);
+    doc.text("Transcripción de Clase", 20, 20);
+    const lines = doc.splitTextToSize(output.innerText, 170);
+    doc.text(lines, 20, 30);
 
     const pdfBlob = doc.output("blob");
-    const pdfUrl = URL.createObjectURL(pdfBlob);
+    zip.file(name + ".pdf", pdfBlob);
 
-    setTimeout(()=> window.open(pdfUrl), 500);
+    // GENERAR ZIP
+    const zipBlob = await zip.generateAsync({ type: "blob" });
 
+    downloadFile(zipBlob, name + ".zip");
 };
 
-// ----------- BOTONES -----------
+// ---------- DESCARGA REAL ----------
+function downloadFile(blob, filename) {
 
+    const url = URL.createObjectURL(blob);
+
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = filename;
+
+    document.body.appendChild(a);
+    a.click();
+
+    setTimeout(() => {
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+    }, 1000);
+}
+
+// ---------- BOTÓN ----------
 startBtn.onclick = startSession;
 
 </script>
