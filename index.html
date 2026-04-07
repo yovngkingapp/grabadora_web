@@ -1,0 +1,92 @@
+<!DOCTYPE html>
+<html lang="es-CL">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Grabadora Pro Chilena</title>
+    <style>
+        body { font-family: sans-serif; padding: 20px; background: #f0f2f5; }
+        .container { max-width: 500px; margin: auto; background: white; padding: 20px; border-radius: 15px; box-shadow: 0 4px 10px rgba(0,0,0,0.1); }
+        h2 { color: #1a73e8; text-align: center; }
+        #output { min-height: 150px; border: 2px solid #e0e0e0; padding: 15px; margin-bottom: 20px; border-radius: 10px; background: #fafafa; line-height: 1.6; }
+        .original { font-size: 0.8em; color: #888; margin-top: 10px; border-top: 1px solid #eee; padding-top: 10px; }
+        button { width: 100%; padding: 15px; border: none; border-radius: 10px; cursor: pointer; font-size: 16px; font-weight: bold; transition: 0.3s; }
+        .btn-start { background: #34a853; color: white; }
+        .btn-stop { background: #ea4335; color: white; }
+        .word-highlight { color: #1a73e8; font-weight: bold; }
+    </style>
+</head>
+<body>
+<div class="container">
+    <h2>Mi Grabadora Web</h2>
+    <div id="output">Presiona el botón para comenzar a hablar...</div>
+    <button id="actionBtn" class="btn-start">Comenzar a grabar po!</button>
+    <div class="original" id="raw-text">Texto original: -</div>
+</div>
+
+<script>
+    // Tu diccionario integrado directamente
+    const diccionario = {
+        "normalization": {
+            "po": "pues", "pa": "para", "na": "nada", "estai": "estás", "cachai": "entiendes", "ya po": "ya pues", "fome": "aburrido"
+        },
+        "academic": ["hipótesis", "metodología", "análisis", "psicología", "conducta", "cognición", "intervención"]
+    };
+
+    const actionBtn = document.getElementById('actionBtn');
+    const output = document.getElementById('output');
+    const rawText = document.getElementById('raw-text');
+    
+    let recognition;
+    let isRecording = false;
+
+    if ('webkitSpeechRecognition' in window) {
+        recognition = new webkitSpeechRecognition();
+        recognition.lang = 'es-CL';
+        recognition.continuous = true;
+        recognition.interimResults = true;
+
+        recognition.onresult = (event) => {
+            let result = "";
+            for (let i = event.resultIndex; i < event.results.length; i++) {
+                result += event.results[i][0].transcript;
+            }
+            
+            rawText.innerText = "Original: " + result;
+            processText(result.toLowerCase());
+        };
+    }
+
+    function processText(text) {
+        let final = text;
+        
+        // 1. Aplicamos Normalización (Chilenismos a formal)
+        for (let [error, correccion] of Object.entries(diccionario.normalization)) {
+            const regex = new RegExp(`\\b${error}\\b`, 'g');
+            final = final.replace(regex, correccion);
+        }
+
+        // 2. Resaltamos palabras académicas
+        diccionario.academic.forEach(word => {
+            const regex = new RegExp(`(${word})`, 'gi');
+            final = final.replace(regex, '<span class="word-highlight">$1</span>');
+        });
+
+        output.innerHTML = final;
+    }
+
+    actionBtn.onclick = () => {
+        if (!isRecording) {
+            recognition.start();
+            actionBtn.innerText = "Detener grabación";
+            actionBtn.className = "btn-stop";
+        } else {
+            recognition.stop();
+            actionBtn.innerText = "Comenzar a grabar po!";
+            actionBtn.className = "btn-start";
+        }
+        isRecording = !isRecording;
+    };
+</script>
+</body>
+</html>
