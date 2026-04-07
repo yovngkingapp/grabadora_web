@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Grabadora de Aula Pro - Dark Mode</title>
+    <title>Grabadora de Aula Pro - Modo Oscuro</title>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
     <style>
         :root {
@@ -36,7 +36,6 @@
         .btn-download { background: var(--accent); color: white; grid-column: span 2; margin-top: 15px; }
         .recording-pulse { color: var(--danger); animation: pulse 1s infinite; font-weight: bold; }
         @keyframes pulse { 0% { opacity: 1; } 50% { opacity: 0.3; } 100% { opacity: 1; } }
-        .word-highlight { color: var(--success); font-weight: bold; }
     </style>
 </head>
 <body>
@@ -57,18 +56,27 @@
 </div>
 
 <script>
-    const academicWords = ["hipótesis", "metodología", "psicología", "conducta", "cognición", "intervención", "diagnóstico", "apego", "análisis", "teoría", "variable", "paradigma"];
+    // Reglas de normalización automáticas (sin iluminar)
     const normRules = {"po": "pues", "pa": "para", "na": "nada", "estai": "estás", "cachai": "entiendes", "ya po": "ya pues"};
 
-    let recognition, mediaRecorder, chunks = [], fullText = localStorage.getItem('last_transcript_pro') || "";
-    let isRecording = false, startTime, timerId, wakeLock = null;
+    let recognition, mediaRecorder, chunks = [], fullText = localStorage.getItem('last_transcript_v3') || "";
+    let isRecording = false, isPaused = false;
+    let startTime, elapsedTime = 0, timerId, wakeLock = null;
 
     const output = document.getElementById('output');
     output.innerHTML = fullText;
 
+    function getFileName() {
+        const d = new Date();
+        const day = String(d.getDate()).padStart(2, '0');
+        const month = String(d.getMonth() + 1).padStart(2, '0');
+        const year = d.getFullYear();
+        return `Clase_${day}-${month}-${year}`;
+    }
+
     async function toggleWakeLock(on) {
         if ('wakeLock' in navigator) {
-            try { if(on) wakeLock = await navigator.wakeLock.request('screen'); else wakeLock.release(); } catch(e){}
+            try { if(on) wakeLock = await navigator.wakeLock.request('screen'); else if(wakeLock) wakeLock.release(); } catch(e){}
         }
     }
 
@@ -79,18 +87,19 @@
         recognition.interimResults = true;
 
         recognition.onresult = (e) => {
+            if (!isRecording || isPaused) return;
             let interim = "";
             for (let i = e.resultIndex; i < e.results.length; i++) {
                 let text = e.results[i][0].transcript;
                 if (e.results[i].isFinal) {
                     fullText += processText(text) + ". ";
-                    localStorage.setItem('last_transcript_pro', fullText);
+                    localStorage.setItem('last_transcript_v3', fullText);
                 } else { interim += text; }
             }
             output.innerHTML = fullText + `<span style="color:#666">${interim}</span>`;
             output.scrollTop = output.scrollHeight;
         };
-        recognition.onend = () => { if (isRecording) recognition.start(); };
+        recognition.onend = () => { if (isRecording && !isPaused) recognition.start(); };
     }
 
     async function startSession() {
@@ -98,15 +107,15 @@
             echoCancellation: true, noiseSuppression: true, autoGainControl: true 
         }});
         
-        // Grabación de alta calidad (bitrate alto)
         mediaRecorder = new MediaRecorder(stream, { audioBitsPerSecond: 128000 });
-        mediaRecorder.ondataavailable = (e) => chunks.push(e.data);
-        mediaRecorder.onstop = exportAudio;
+        mediaRecorder.ondataavailable = (e) => { if(e.data.size > 0) chunks.push(e.data); };
         
-        mediaRecorder.start();
+        mediaRecorder.start(1000); 
         recognition.start();
+        
         isRecording = true;
-        startTime = Date.now();
+        isPaused = false;
+        startTime = Date.now() - elapsedTime;
         timerId = setInterval(updateTimer, 1000);
         toggleWakeLock(true);
 
@@ -114,6 +123,7 @@
         document.getElementById('startBtn').disabled = true;
         document.getElementById('pauseBtn').disabled = false;
         document.getElementById('stopBtn').disabled = false;
+        document.getElementById('downloadBtn').style.display = "none";
     }
 
     function processText(text) {
@@ -121,75 +131,85 @@
         for (let [key, val] of Object.entries(normRules)) {
             t = t.replace(new RegExp(`\\b${key}\\b`, 'g'), val);
         }
-        academicWords.forEach(w => {
-            t = t.replace(new RegExp(`(${w})`, 'gi'), '<span class="word-highlight">$1</span>');
-        });
+        // Se eliminó el resaltado de palabras académicas
         return t.charAt(0).toUpperCase() + t.slice(1);
     }
 
     function updateTimer() {
+        if (isPaused) return;
         const diff = Date.now() - startTime;
+        elapsedTime = diff;
         const h = Math.floor(diff/3600000).toString().padStart(2,'0');
         const m = Math.floor((diff%3600000)/60000).toString().padStart(2,'0');
         const s = Math.floor((diff%60000)/1000).toString().padStart(2,'0');
         document.getElementById('timer').innerText = `${h}:${m}:${s}`;
     }
 
+    document.getElementById('pauseBtn').onclick = () => {
+        if (!isPaused) {
+            isPaused = true;
+            recognition.stop();
+            mediaRecorder.pause();
+            document.getElementById('pauseBtn').innerText = "▶ REANUDAR";
+            document.getElementById('status').innerText = "● PAUSADO";
+        } else {
+            isPaused = false;
+            recognition.start();
+            mediaRecorder.resume();
+            startTime = Date.now() - elapsedTime; 
+            document.getElementById('pauseBtn').innerText = "⏸ PAUSAR";
+            document.getElementById('status').innerHTML = '<span class="recording-pulse">● GRABANDO</span>';
+        }
+    };
+
     document.getElementById('stopBtn').onclick = () => {
         isRecording = false;
+        isPaused = false;
         recognition.stop();
         mediaRecorder.stop();
         clearInterval(timerId);
         toggleWakeLock(false);
         document.getElementById('status').innerText = "● FINALIZADO";
         document.getElementById('downloadBtn').style.display = "block";
+        document.getElementById('pauseBtn').disabled = true;
+        document.getElementById('stopBtn').disabled = true;
     };
 
-    function exportAudio() {
+    document.getElementById('downloadBtn').onclick = () => {
+        const name = getFileName();
+        
+        // Descargar Audio
         const blob = new Blob(chunks, { type: 'audio/mp3' });
         const a = document.createElement('a');
         a.href = URL.createObjectURL(blob);
-        a.download = `Clase_${new Date().getTime()}.mp3`;
+        a.download = `${name}.mp3`;
         a.click();
-    }
 
-    document.getElementById('downloadBtn').onclick = () => {
+        // Descargar PDF (Times New Roman 12)
         const { jsPDF } = window.jspdf;
         const doc = new jsPDF();
-        const dateStr = new Date().toLocaleString();
-        
-        // Configuración Times New Roman 12
         doc.setFont("times", "normal");
         doc.setFontSize(16);
         doc.text("Transcripción Académica de Clase", 20, 20);
         doc.setFontSize(10);
-        doc.text(`Fecha de sesión: ${dateStr}`, 20, 28);
+        doc.text(`Fecha: ${new Date().toLocaleDateString()}`, 20, 28);
         doc.line(20, 32, 190, 32);
         
-        doc.setFontSize(12); // Tamaño 12 solicitado
+        doc.setFontSize(12);
         const lines = doc.splitTextToSize(output.innerText, 170);
         doc.text(lines, 20, 42);
+        doc.save(`${name}.pdf`);
         
-        doc.save(`Transcripcion_${new Date().getTime()}.pdf`);
-        
-        if(confirm("¿Limpiar sesión para una nueva clase?")) {
-            localStorage.removeItem('last_transcript_pro');
+        if(confirm("¿Limpiar memoria para la siguiente clase?")) {
+            localStorage.removeItem('last_transcript_v3');
             location.reload();
+        } else {
+            document.getElementById('startBtn').disabled = false;
+            document.getElementById('downloadBtn').style.display = "none";
         }
     };
 
     document.getElementById('startBtn').onclick = startSession;
-    document.getElementById('pauseBtn').onclick = () => {
-        if(isRecording) { 
-            recognition.stop(); isRecording = false; 
-            document.getElementById('pauseBtn').innerText = "▶ REANUDAR";
-            document.getElementById('status').innerText = "● PAUSADO";
-        } else { 
-            recognition.start(); isRecording = true; 
-            document.getElementById('pauseBtn').innerText = "⏸ PAUSAR";
-            document.getElementById('status').innerHTML = '<span class="recording-pulse">● GRABANDO</span>';
-        }
-    };
 </script>
 </body>
 </html>
