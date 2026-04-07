@@ -3,42 +3,74 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Grabadora Pro Chilena</title>
+    <title>Grabadora de Aula Pro - Dark Mode</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
     <style>
-        body { font-family: sans-serif; padding: 20px; background: #f0f2f5; }
-        .container { max-width: 500px; margin: auto; background: white; padding: 20px; border-radius: 15px; box-shadow: 0 4px 10px rgba(0,0,0,0.1); }
-        h2 { color: #1a73e8; text-align: center; }
-        #output { min-height: 150px; border: 2px solid #e0e0e0; padding: 15px; margin-bottom: 20px; border-radius: 10px; background: #fafafa; line-height: 1.6; }
-        .original { font-size: 0.8em; color: #888; margin-top: 10px; border-top: 1px solid #eee; padding-top: 10px; }
-        button { width: 100%; padding: 15px; border: none; border-radius: 10px; cursor: pointer; font-size: 16px; font-weight: bold; transition: 0.3s; }
-        .btn-start { background: #34a853; color: white; }
-        .btn-stop { background: #ea4335; color: white; }
-        .word-highlight { color: #1a73e8; font-weight: bold; }
+        :root {
+            --bg: #121212; --card: #1e1e1e; --text: #e0e0e0;
+            --accent: #3d5afe; --danger: #ff5252; --success: #00e676; --warning: #ffea00;
+        }
+        body { 
+            font-family: 'Segoe UI', Roboto, sans-serif; 
+            background: var(--bg); color: var(--text); 
+            margin: 0; padding: 15px; display: flex; justify-content: center;
+        }
+        .app-card { width: 100%; max-width: 800px; background: var(--card); border-radius: 20px; padding: 25px; box-shadow: 0 10px 40px rgba(0,0,0,0.5); }
+        h1 { font-size: 1.4rem; text-align: center; color: var(--text); border-bottom: 1px solid #333; padding-bottom: 15px; margin-top: 0; }
+        #output { 
+            height: 450px; border: 1px solid #333; border-radius: 12px; padding: 20px; 
+            overflow-y: auto; background: #000; font-size: 18px; line-height: 1.6; 
+            margin-bottom: 20px; color: #fff;
+        }
+        .stats { display: flex; justify-content: space-between; margin-bottom: 15px; font-family: monospace; font-size: 1.2rem; }
+        .controls { display: grid; grid-template-columns: 1fr 1fr; gap: 15px; }
+        button { 
+            padding: 20px; border: none; border-radius: 15px; font-weight: bold; 
+            cursor: pointer; font-size: 1.1rem; transition: transform 0.1s, opacity 0.2s;
+            display: flex; align-items: center; justify-content: center;
+        }
+        button:active { transform: scale(0.96); }
+        .btn-start { background: var(--success); color: #000; grid-column: span 2; }
+        .btn-pause { background: var(--warning); color: #000; }
+        .btn-stop { background: var(--danger); color: white; }
+        .btn-download { background: var(--accent); color: white; grid-column: span 2; margin-top: 15px; }
+        .recording-pulse { color: var(--danger); animation: pulse 1s infinite; font-weight: bold; }
+        @keyframes pulse { 0% { opacity: 1; } 50% { opacity: 0.3; } 100% { opacity: 1; } }
+        .word-highlight { color: var(--success); font-weight: bold; }
     </style>
 </head>
 <body>
-<div class="container">
-    <h2>Mi Grabadora Web</h2>
-    <div id="output">Presiona el botón para comenzar a hablar...</div>
-    <button id="actionBtn" class="btn-start">Comenzar a grabar po!</button>
-    <div class="original" id="raw-text">Texto original: -</div>
+<div class="app-card">
+    <h1>Grabadora de Aula & Transcripción</h1>
+    <div class="stats">
+        <div id="status">● Standby</div>
+        <div id="timer">00:00:00</div>
+    </div>
+    <div id="output"></div>
+    
+    <div class="controls">
+        <button id="startBtn" class="btn-start">⏺ INICIAR GRABACIÓN</button>
+        <button id="pauseBtn" class="btn-pause" disabled>⏸ PAUSAR</button>
+        <button id="stopBtn" class="btn-stop" disabled>⏹ DETENER</button>
+        <button id="downloadBtn" class="btn-download" style="display:none;">📥 DESCARGAR CLASE (MP3 + PDF)</button>
+    </div>
 </div>
 
 <script>
-    // Tu diccionario integrado directamente
-    const diccionario = {
-        "normalization": {
-            "po": "pues", "pa": "para", "na": "nada", "estai": "estás", "cachai": "entiendes", "ya po": "ya pues", "fome": "aburrido"
-        },
-        "academic": ["hipótesis", "metodología", "análisis", "psicología", "conducta", "cognición", "intervención"]
-    };
+    const academicWords = ["hipótesis", "metodología", "psicología", "conducta", "cognición", "intervención", "diagnóstico", "apego", "análisis", "teoría", "variable", "paradigma"];
+    const normRules = {"po": "pues", "pa": "para", "na": "nada", "estai": "estás", "cachai": "entiendes", "ya po": "ya pues"};
 
-    const actionBtn = document.getElementById('actionBtn');
+    let recognition, mediaRecorder, chunks = [], fullText = localStorage.getItem('last_transcript_pro') || "";
+    let isRecording = false, startTime, timerId, wakeLock = null;
+
     const output = document.getElementById('output');
-    const rawText = document.getElementById('raw-text');
-    
-    let recognition;
-    let isRecording = false;
+    output.innerHTML = fullText;
+
+    async function toggleWakeLock(on) {
+        if ('wakeLock' in navigator) {
+            try { if(on) wakeLock = await navigator.wakeLock.request('screen'); else wakeLock.release(); } catch(e){}
+        }
+    }
 
     if ('webkitSpeechRecognition' in window) {
         recognition = new webkitSpeechRecognition();
@@ -46,46 +78,117 @@
         recognition.continuous = true;
         recognition.interimResults = true;
 
-        recognition.onresult = (event) => {
-            let result = "";
-            for (let i = event.resultIndex; i < event.results.length; i++) {
-                result += event.results[i][0].transcript;
+        recognition.onresult = (e) => {
+            let interim = "";
+            for (let i = e.resultIndex; i < e.results.length; i++) {
+                let text = e.results[i][0].transcript;
+                if (e.results[i].isFinal) {
+                    fullText += processText(text) + ". ";
+                    localStorage.setItem('last_transcript_pro', fullText);
+                } else { interim += text; }
             }
-            
-            rawText.innerText = "Original: " + result;
-            processText(result.toLowerCase());
+            output.innerHTML = fullText + `<span style="color:#666">${interim}</span>`;
+            output.scrollTop = output.scrollHeight;
         };
+        recognition.onend = () => { if (isRecording) recognition.start(); };
+    }
+
+    async function startSession() {
+        const stream = await navigator.mediaDevices.getUserMedia({ audio: { 
+            echoCancellation: true, noiseSuppression: true, autoGainControl: true 
+        }});
+        
+        // Grabación de alta calidad (bitrate alto)
+        mediaRecorder = new MediaRecorder(stream, { audioBitsPerSecond: 128000 });
+        mediaRecorder.ondataavailable = (e) => chunks.push(e.data);
+        mediaRecorder.onstop = exportAudio;
+        
+        mediaRecorder.start();
+        recognition.start();
+        isRecording = true;
+        startTime = Date.now();
+        timerId = setInterval(updateTimer, 1000);
+        toggleWakeLock(true);
+
+        document.getElementById('status').innerHTML = '<span class="recording-pulse">● GRABANDO</span>';
+        document.getElementById('startBtn').disabled = true;
+        document.getElementById('pauseBtn').disabled = false;
+        document.getElementById('stopBtn').disabled = false;
     }
 
     function processText(text) {
-        let final = text;
-        
-        // 1. Aplicamos Normalización (Chilenismos a formal)
-        for (let [error, correccion] of Object.entries(diccionario.normalization)) {
-            const regex = new RegExp(`\\b${error}\\b`, 'g');
-            final = final.replace(regex, correccion);
+        let t = text.toLowerCase().trim();
+        for (let [key, val] of Object.entries(normRules)) {
+            t = t.replace(new RegExp(`\\b${key}\\b`, 'g'), val);
         }
-
-        // 2. Resaltamos palabras académicas
-        diccionario.academic.forEach(word => {
-            const regex = new RegExp(`(${word})`, 'gi');
-            final = final.replace(regex, '<span class="word-highlight">$1</span>');
+        academicWords.forEach(w => {
+            t = t.replace(new RegExp(`(${w})`, 'gi'), '<span class="word-highlight">$1</span>');
         });
-
-        output.innerHTML = final;
+        return t.charAt(0).toUpperCase() + t.slice(1);
     }
 
-    actionBtn.onclick = () => {
-        if (!isRecording) {
-            recognition.start();
-            actionBtn.innerText = "Detener grabación";
-            actionBtn.className = "btn-stop";
-        } else {
-            recognition.stop();
-            actionBtn.innerText = "Comenzar a grabar po!";
-            actionBtn.className = "btn-start";
+    function updateTimer() {
+        const diff = Date.now() - startTime;
+        const h = Math.floor(diff/3600000).toString().padStart(2,'0');
+        const m = Math.floor((diff%3600000)/60000).toString().padStart(2,'0');
+        const s = Math.floor((diff%60000)/1000).toString().padStart(2,'0');
+        document.getElementById('timer').innerText = `${h}:${m}:${s}`;
+    }
+
+    document.getElementById('stopBtn').onclick = () => {
+        isRecording = false;
+        recognition.stop();
+        mediaRecorder.stop();
+        clearInterval(timerId);
+        toggleWakeLock(false);
+        document.getElementById('status').innerText = "● FINALIZADO";
+        document.getElementById('downloadBtn').style.display = "block";
+    };
+
+    function exportAudio() {
+        const blob = new Blob(chunks, { type: 'audio/mp3' });
+        const a = document.createElement('a');
+        a.href = URL.createObjectURL(blob);
+        a.download = `Clase_${new Date().getTime()}.mp3`;
+        a.click();
+    }
+
+    document.getElementById('downloadBtn').onclick = () => {
+        const { jsPDF } = window.jspdf;
+        const doc = new jsPDF();
+        const dateStr = new Date().toLocaleString();
+        
+        // Configuración Times New Roman 12
+        doc.setFont("times", "normal");
+        doc.setFontSize(16);
+        doc.text("Transcripción Académica de Clase", 20, 20);
+        doc.setFontSize(10);
+        doc.text(`Fecha de sesión: ${dateStr}`, 20, 28);
+        doc.line(20, 32, 190, 32);
+        
+        doc.setFontSize(12); // Tamaño 12 solicitado
+        const lines = doc.splitTextToSize(output.innerText, 170);
+        doc.text(lines, 20, 42);
+        
+        doc.save(`Transcripcion_${new Date().getTime()}.pdf`);
+        
+        if(confirm("¿Limpiar sesión para una nueva clase?")) {
+            localStorage.removeItem('last_transcript_pro');
+            location.reload();
         }
-        isRecording = !isRecording;
+    };
+
+    document.getElementById('startBtn').onclick = startSession;
+    document.getElementById('pauseBtn').onclick = () => {
+        if(isRecording) { 
+            recognition.stop(); isRecording = false; 
+            document.getElementById('pauseBtn').innerText = "▶ REANUDAR";
+            document.getElementById('status').innerText = "● PAUSADO";
+        } else { 
+            recognition.start(); isRecording = true; 
+            document.getElementById('pauseBtn').innerText = "⏸ PAUSAR";
+            document.getElementById('status').innerHTML = '<span class="recording-pulse">● GRABANDO</span>';
+        }
     };
 </script>
 </body>
