@@ -3,64 +3,56 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Grabadora de Aula Pro - Móvil</title>
+    <title>Grabadora Profesional</title>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
     <style>
-        :root { --bg:#0f172a; --card:#1e293b; --text:#f8fafc; --accent:#38bdf8; --danger:#ef4444; --success:#22c55e; }
-        body { font-family: 'Segoe UI', system-ui, sans-serif; background: var(--bg); color: var(--text); margin:0; padding:15px; display:flex; justify-content:center; }
-        .app-card { width:100%; max-width:600px; background:var(--card); border-radius:24px; padding:30px; box-shadow: 0 20px 50px rgba(0,0,0,0.3); }
-        h1 { text-align:center; font-size: 1.4rem; margin-bottom: 5px; color: var(--accent); }
-        #status { text-align: center; font-size: 0.9rem; margin-bottom: 10px; font-weight: bold; }
-        #timer { text-align: center; font-family: 'Courier New', monospace; font-size: 3rem; margin: 15px 0; color: #fff; }
-        #output { height:300px; border:2px solid #334155; border-radius:16px; padding:15px; overflow-y:auto; background:#000; margin-bottom:20px; font-size: 1rem; line-height: 1.6; color: #cbd5e1; }
-        .controls { display:grid; grid-template-columns: 1fr 1fr; gap:12px; }
-        button { padding:20px; border:none; border-radius:16px; font-weight:bold; cursor: pointer; font-size: 1rem; transition: transform 0.1s; }
-        button:active { transform: scale(0.95); }
-        .btn-start { background:var(--success); color:#052e16; grid-column: span 2; }
-        .btn-stop { background:var(--danger); color:#fff; grid-column: span 2; }
-        .btn-download { background:var(--accent); color:#082f49; grid-column: span 2; margin-top:10px; }
-        .footer-info { font-size: 0.75rem; color: #64748b; text-align: center; margin-top: 20px; line-height: 1.4; }
+        :root { --b:#0f172a; --c:#1e293b; --t:#f8fafc; --a:#38bdf8; --d:#ef4444; --s:#22c55e; }
+        body { font-family: system-ui, sans-serif; background: var(--b); color: var(--t); margin:0; padding:15px; display:flex; justify-content:center; }
+        .card { width:100%; max-width:500px; background:var(--c); border-radius:20px; padding:25px; box-shadow: 0 10px 30px rgba(0,0,0,0.5); }
+        h1 { text-align:center; font-size: 1.2rem; color: var(--a); }
+        #timer { text-align: center; font-family: monospace; font-size: 3rem; margin: 20px 0; }
+        #output { height:250px; border:1px solid #334155; border-radius:12px; padding:15px; overflow-y:auto; background:#000; margin-bottom:15px; font-size: 0.9rem; line-height: 1.5; }
+        .grid { display:grid; grid-template-columns: 1fr 1fr; gap:10px; }
+        button { padding:18px; border:none; border-radius:12px; font-weight:bold; cursor: pointer; font-size: 1rem; }
+        button:disabled { opacity: 0.3; }
+        .btn-start { background:var(--s); color:#052e16; grid-column: span 2; }
+        .btn-stop { background:var(--d); color:#fff; grid-column: span 2; }
+        .btn-dl { background:var(--a); color:#082f49; grid-column: span 2; margin-top:10px; }
+        .status { text-align: center; font-size: 0.8rem; color: #64748b; margin-top: 10px; }
     </style>
 </head>
 <body>
 
-<div class="app-card">
-    <h1>Transcripción & Audio</h1>
-    <div id="status" style="color: #64748b;">DISPOSITIVO LISTO</div>
+<div class="card">
+    <h1>Grabadora de Aula</h1>
     <div id="timer">00:00:00</div>
+    <div id="output">El texto aparecerá aquí...</div>
     
-    <div id="output">Presiona iniciar para grabar...</div>
-
-    <div class="controls">
-        <button id="startBtn" class="btn-start">INICIAR GRABACIÓN</button>
-        <button id="stopBtn" class="btn-stop" disabled>FINALIZAR Y GUARDAR</button>
-        <button id="downloadBtn" class="btn-download" style="display:none;">DESCARGAR ARCHIVOS (.zip)</button>
+    <div class="grid">
+        <button id="btnStart" class="btn-start">INICIAR</button>
+        <button id="btnStop" class="btn-stop" disabled>DETENER</button>
+        <button id="btnDl" class="btn-dl" style="display:none;">DESCARGAR ZIP</button>
     </div>
-
-    <div class="footer-info">
-        <b>Tip para Jillpro:</b> En Android/iOS, mantén la pestaña visible y la pantalla encendida para que la transcripción no se detenga.
-    </div>
+    <div id="msg" class="status">Listo para comenzar</div>
 </div>
 
 <script>
+/* global jspdf, JSZip */
+const btnStart = document.getElementById("btnStart");
+const btnStop = document.getElementById("btnStop");
+const btnDl = document.getElementById("btnDl");
 const output = document.getElementById("output");
-const status = document.getElementById("status");
 const timer = document.getElementById("timer");
-const startBtn = document.getElementById("startBtn");
-const stopBtn = document.getElementById("stopBtn");
-const downloadBtn = document.getElementById("downloadBtn");
+const msg = document.getElementById("msg");
 
-let recognition = null;
-let mediaRecorder, chunks = [];
+let recorder, chunks = [], recognition, isRecording = false, startTime, timerInterval;
 let fullText = "";
-let isRecording = false;
-let startTime, timerId;
 
-// 1. CONFIGURACIÓN DE VOZ (API del Navegador)
-const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
-if (SpeechRecognition) {
-    recognition = new SpeechRecognition();
+// Configurar reconocimiento de voz
+const SpeechRec = window.SpeechRecognition || window.webkitSpeechRecognition;
+if (SpeechRec) {
+    recognition = new SpeechRec();
     recognition.lang = "es-CL";
     recognition.continuous = true;
     recognition.interimResults = true;
@@ -78,28 +70,22 @@ if (SpeechRecognition) {
         output.scrollTop = output.scrollHeight;
     };
 
-    recognition.onend = () => { 
-        if (isRecording) try { recognition.start(); } catch(e) {} 
-    };
+    recognition.onend = () => { if (isRecording) recognition.start(); };
 }
 
-// 2. FUNCIÓN PRINCIPAL DE INICIO
-async function startSession() {
+async function start() {
     try {
-        // SOLUCIÓN AL CONFLICTO: Pedir un solo stream para todo
         const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
         
-        // Configurar Grabadora (Audio puro)
-        const mimeType = MediaRecorder.isTypeSupported('audio/webm;codecs=opus') 
-                         ? 'audio/webm;codecs=opus' 
-                         : 'audio/mp4'; // Fallback para iOS
+        // Configurar Audio para que NO parezca video
+        const options = { mimeType: 'audio/webm;codecs=opus' };
+        if (!MediaRecorder.isTypeSupported(options.mimeType)) options.mimeType = 'audio/mp4';
         
-        mediaRecorder = new MediaRecorder(stream, { mimeType });
+        recorder = new MediaRecorder(stream, options);
         chunks = [];
-        mediaRecorder.ondataavailable = e => { if(e.data.size > 0) chunks.push(e.data); };
-        mediaRecorder.start();
+        recorder.ondataavailable = e => chunks.push(e.data);
+        recorder.start();
 
-        // Iniciar Transcripción con el mismo permiso
         if (recognition) {
             fullText = "";
             output.innerText = "";
@@ -108,83 +94,71 @@ async function startSession() {
 
         isRecording = true;
         startTime = Date.now();
-        timerId = setInterval(updateTimer, 1000);
+        timerInterval = setInterval(() => {
+            const d = new Date(Date.now() - startTime);
+            timer.innerText = d.toISOString().substr(11, 8);
+        }, 1000);
 
-        status.innerText = "● GRABANDO EN VIVO";
-        status.style.color = "var(--success)";
-        startBtn.disabled = true;
-        stopBtn.disabled = false;
-        downloadBtn.style.display = "none";
+        btnStart.disabled = true;
+        btnStop.disabled = false;
+        btnDl.style.display = "none";
+        msg.innerText = "Grabando...";
+        msg.style.color = "#22c55e";
 
     } catch (err) {
-        alert("Error: No se pudo acceder al micrófono. Revisa los permisos de tu celular.");
+        alert("Error: Activa el micrófono en tu navegador.");
     }
 }
 
-function updateTimer() {
-    const diff = new Date(Date.now() - startTime);
-    timer.innerText = diff.toISOString().substr(11, 8);
-}
-
-// 3. FINALIZAR
-stopBtn.onclick = () => {
+btnStop.onclick = () => {
     isRecording = false;
-    if (mediaRecorder) {
-        mediaRecorder.stop();
-        mediaRecorder.stream.getTracks().forEach(t => t.stop()); // Apaga el micro físicamente
+    if (recorder) {
+        recorder.stop();
+        recorder.stream.getTracks().forEach(t => t.stop());
     }
     if (recognition) recognition.stop();
-    clearInterval(timerId);
+    clearInterval(timerInterval);
 
-    status.innerText = "GRABACIÓN COMPLETADA";
-    status.style.color = "var(--text)";
-    startBtn.disabled = false;
-    stopBtn.disabled = true;
-    downloadBtn.style.display = "block";
+    btnStart.disabled = false;
+    btnStop.disabled = true;
+    btnDl.style.display = "block";
+    msg.innerText = "Grabación finalizada";
+    msg.style.color = "#f8fafc";
 };
 
-// 4. DESCARGA (AUDIO + PDF EN TIMES NEW ROMAN)
-downloadBtn.onclick = async () => {
+btnDl.onclick = async () => {
     const zip = new JSZip();
-    const dateStr = new Date().toLocaleDateString().replace(/\//g, "-");
-    const fileName = `Clase_${dateStr}`;
+    const ts = new Date().getTime();
 
-    // ARCHIVO DE AUDIO (Cambiamos extensión a .m4a o .mp3 para que el celular lo reconozca como música)
-    const audioBlob = new Blob(chunks, { type: mediaRecorder.mimeType });
-    const extension = mediaRecorder.mimeType.includes('mp4') ? '.m4a' : '.ogg';
-    zip.file(fileName + extension, audioBlob);
+    // Guardar Audio como archivo de sonido (.m4a es mejor para celulares)
+    const audioBlob = new Blob(chunks, { type: recorder.mimeType });
+    zip.file(`Audio_${ts}.m4a`, audioBlob);
 
-    // ARCHIVO PDF (Estándar APA/Académico)
-    const { jsPDF } = window.jspdf;
+    // Guardar PDF (Times New Roman)
+    const { jsPDF } = jspdf;
     const doc = new jsPDF();
-    
-    doc.setFont("times", "normal"); // Times New Roman
-    doc.setFontSize(18);
-    doc.text("Transcripción de Sesión Educativa", 20, 20);
-    
+    doc.setFont("times", "normal");
+    doc.setFontSize(16);
+    doc.text("Transcripción de Sesión", 20, 20);
     doc.setFontSize(12);
-    doc.text(`Fecha: ${new Date().toLocaleString()}`, 20, 30);
     
-    // Si la transcripción falló, usamos el texto del visor
-    let textToSave = fullText || output.innerText;
-    if (textToSave.length < 10) textToSave = "No se detectó transcripción de texto.";
-
-    const lines = doc.splitTextToSize(textToSave, 170);
-    doc.text(lines, 20, 45);
+    const content = fullText || output.innerText || "Sin texto detectado";
+    const lines = doc.splitTextToSize(content, 170);
+    doc.text(lines, 20, 35);
 
     const pdfBlob = doc.output("blob");
-    zip.file(fileName + ".pdf", pdfBlob);
+    zip.file(`Texto_${ts}.pdf`, pdfBlob);
 
-    // GENERAR ZIP FINAL
-    const zipContent = await zip.generateAsync({ type: "blob" });
-    const url = URL.createObjectURL(zipContent);
+    // Descargar ZIP
+    const zipBlob = await zip.generateAsync({ type: "blob" });
+    const url = URL.createObjectURL(zipBlob);
     const a = document.createElement("a");
     a.href = url;
-    a.download = fileName + ".zip";
+    a.download = `Clase_${ts}.zip`;
     a.click();
 };
 
-startBtn.onclick = startSession;
+btnStart.onclick = start;
 </script>
 </body>
 </html>
