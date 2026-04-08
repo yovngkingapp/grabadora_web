@@ -7,10 +7,6 @@
     
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
-    <script type="module">
-        import { pipeline } from 'https://cdn.jsdelivr.net/npm/@xenova/transformers@2.17.1';
-        window.pipeline = pipeline;
-    </script>
 
     <style>
         :root {
@@ -19,83 +15,111 @@
         }
         body { font-family: 'Segoe UI', sans-serif; background: var(--bg); color: var(--text); margin:0; padding:15px; display:flex; justify-content:center; }
         .app-card { width:100%; max-width:800px; background:var(--card); border-radius:20px; padding:25px; box-shadow: 0 10px 30px rgba(0,0,0,0.5); }
-        h1 { text-align:center; font-size: 1.5rem; }
+        h1 { text-align:center; font-size: 1.5rem; margin-bottom: 20px; }
         #status { text-align: center; margin-bottom: 5px; color: var(--success); font-weight: bold; }
         #timer { text-align: center; font-family: monospace; font-size: 2.5rem; margin-bottom: 20px; }
-        #output { height:300px; border:1px solid #333; border-radius:12px; padding:20px; overflow-y:auto; background:#000; margin-bottom:20px; line-height: 1.6; color: #94a3b8; white-space: pre-wrap; }
+        #output { height:350px; border:1px solid #333; border-radius:12px; padding:20px; overflow-y:auto; background:#000; margin-bottom:20px; line-height: 1.6; color: #94a3b8; white-space: pre-wrap; }
         .controls { display:grid; grid-template-columns:1fr 1fr; gap:15px; }
         button { padding:20px; border:none; border-radius:15px; font-weight:bold; cursor: pointer; font-size: 1rem; }
         button:disabled { opacity: 0.3; }
         .btn-start { background:var(--success); color:#000; grid-column:span 2; }
         .btn-pause { background:var(--warning); color:#000; }
         .btn-stop { background:var(--danger); color:#fff; }
-        .btn-process { background:var(--accent); color:#fff; grid-column:span 2; margin-top: 10px; }
-        .btn-download { background: #6366f1; color:#fff; grid-column:span 2; margin-top: 10px; }
-        .loader { display: none; text-align: center; color: var(--warning); margin-top: 10px; font-weight: bold; font-size: 0.9rem; padding: 10px; border: 1px solid var(--warning); border-radius: 10px; }
+        .btn-download { background: var(--accent); color:#fff; grid-column:span 2; margin-top: 10px; }
     </style>
 </head>
 <body>
 
 <div class="app-card">
-    <h1>Grabadora Pro (Optimizado RAM)</h1>
-    <div id="status">● LISTO</div>
+    <h1>Grabadora Pro</h1>
+    <div id="status">● DISPOSITIVO LISTO</div>
     <div id="timer">00:00:00</div>
-    <div id="output">La transcripción aparecerá aquí...</div>
+    <div id="output">La transcripción se realizará en tiempo real mientras grabas...</div>
 
     <div class="controls">
-        <button id="startBtn" class="btn-start">INICIAR SESIÓN</button>
+        <button id="startBtn" class="btn-start">INICIAR GRABACIÓN</button>
         <button id="pauseBtn" class="btn-pause" disabled>PAUSAR</button>
         <button id="stopBtn" class="btn-stop" disabled>DETENER</button>
-        <button id="processBtn" class="btn-process" style="display:none;">GENERAR TEXTO (ESPAÑOL)</button>
-        <button id="downloadBtn" class="btn-download" style="display:none;">DESCARGAR ARCHIVOS</button>
+        <button id="downloadBtn" class="btn-download" style="display:none;">DESCARGAR ZIP (AUDIO + PDF)</button>
     </div>
-    <div id="loader" class="loader">Procesando audio... por favor espera y no cambies de pestaña.</div>
 </div>
 
 <script>
-/* global jspdf, JSZip */
-let mediaRecorder, chunks = [], startTime, timerId, elapsed = 0;
-let isPaused = false, audioUrl = "", fullText = "";
+let mediaRecorder, chunks = [], recognition, startTime, timerId, elapsed = 0;
+let isPaused = false, fullText = "";
 
 const startBtn = document.getElementById('startBtn');
 const pauseBtn = document.getElementById('pauseBtn');
 const stopBtn = document.getElementById('stopBtn');
-const processBtn = document.getElementById('processBtn');
 const downloadBtn = document.getElementById('downloadBtn');
 const output = document.getElementById('output');
 const timer = document.getElementById('timer');
 const status = document.getElementById('status');
-const loader = document.getElementById('loader');
+
+// Configuración del motor nativo (No consume RAM extra)
+const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+if (SpeechRecognition) {
+    recognition = new SpeechRecognition();
+    recognition.lang = 'es-CL';
+    recognition.continuous = true;
+    recognition.interimResults = true;
+
+    recognition.onresult = (event) => {
+        let interimTranscript = '';
+        for (let i = event.resultIndex; i < event.results.length; ++i) {
+            if (event.results[i].isFinal) {
+                fullText += event.results[i][0].transcript + '. ';
+            } else {
+                interimTranscript += event.results[i][0].transcript;
+            }
+        }
+        output.innerText = fullText + interimTranscript;
+        output.scrollTop = output.scrollHeight;
+    };
+}
 
 startBtn.onclick = async () => {
     try {
         const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
         mediaRecorder = new MediaRecorder(stream);
         chunks = [];
+
         mediaRecorder.ondataavailable = e => chunks.push(e.data);
-        mediaRecorder.onstop = () => {
-            const audioBlob = new Blob(chunks, { type: 'audio/wav' });
-            if (audioUrl) URL.revokeObjectURL(audioUrl); // Limpiar memoria anterior
-            audioUrl = URL.createObjectURL(audioBlob);
-            processBtn.style.display = 'block';
-        };
+        
         mediaRecorder.start();
+        if (recognition) recognition.start();
+        
         startTime = Date.now();
         timerId = setInterval(updateTimer, 1000);
-        startBtn.disabled = true; pauseBtn.disabled = false; stopBtn.disabled = false;
-        status.innerText = "● GRABANDO"; status.style.color = "var(--success)";
-    } catch (err) { alert("Error de micrófono."); }
+
+        startBtn.disabled = true;
+        pauseBtn.disabled = false;
+        stopBtn.disabled = false;
+        downloadBtn.style.display = 'none';
+        status.innerText = "● GRABANDO";
+        status.style.color = "var(--success)";
+    } catch (err) {
+        alert("Acceso al micrófono denegado.");
+    }
 };
 
 pauseBtn.onclick = () => {
     if (!isPaused) {
-        mediaRecorder.pause(); isPaused = true; clearInterval(timerId);
+        mediaRecorder.pause();
+        if (recognition) recognition.stop();
+        isPaused = true;
+        clearInterval(timerId);
         elapsed += Date.now() - startTime;
-        pauseBtn.innerText = "REANUDAR"; status.innerText = "● EN PAUSA";
+        pauseBtn.innerText = "REANUDAR";
+        status.innerText = "● EN PAUSA";
     } else {
-        mediaRecorder.resume(); isPaused = false; startTime = Date.now();
+        mediaRecorder.resume();
+        if (recognition) recognition.start();
+        isPaused = false;
+        startTime = Date.now();
         timerId = setInterval(updateTimer, 1000);
-        pauseBtn.innerText = "PAUSAR"; status.innerText = "● GRABANDO";
+        pauseBtn.innerText = "PAUSAR";
+        status.innerText = "● GRABANDO";
     }
 };
 
@@ -107,59 +131,36 @@ function updateTimer() {
 
 stopBtn.onclick = () => {
     mediaRecorder.stop();
+    if (recognition) recognition.stop();
     mediaRecorder.stream.getTracks().forEach(t => t.stop());
     clearInterval(timerId);
-    startBtn.disabled = false; pauseBtn.disabled = true; stopBtn.disabled = true;
-    status.innerText = "AUDIO LISTO";
-};
-
-processBtn.onclick = async () => {
-    loader.style.display = 'block';
-    processBtn.disabled = true;
-    status.innerText = "PREPARANDO IA...";
-
-    try {
-        // Usamos 'tiny' que consume poca RAM para evitar la pantalla blanca
-        const transcriber = await window.pipeline('automatic-speech-recognition', 'Xenova/whisper-tiny', {
-            device: 'webgpu' // Intenta usar aceleración si está disponible
-        });
-        
-        status.innerText = "TRANSCRIBIENDO...";
-        
-        const result = await transcriber(audioUrl, { 
-            language: 'spanish',
-            task: 'transcribe',
-            // Estos parámetros aseguran que no se pase al inglés
-            forced_decoder_ids: [['language', 'spanish'], ['task', 'transcribe']]
-        });
-        
-        fullText = result.text;
-        output.innerText = fullText;
-        
-        loader.style.display = 'none';
-        status.innerText = "LISTO";
-        downloadBtn.style.display = 'block';
-    } catch (err) {
-        console.error(err);
-        alert("Error de memoria. Prueba grabando sesiones más cortas (máximo 20-30 min).");
-        loader.style.display = 'none';
-        processBtn.disabled = false;
-    }
+    
+    startBtn.disabled = false;
+    pauseBtn.disabled = true;
+    stopBtn.disabled = true;
+    downloadBtn.style.display = 'block';
+    status.innerText = "FINALIZADO";
 };
 
 downloadBtn.onclick = async () => {
     const zip = new JSZip();
-    const ts = new Date().getTime();
-    zip.file(`Audio_${ts}.m4a`, new Blob(chunks, { type: 'audio/mp4' }));
-    
+    const ts = Date.now();
+
+    // Guardar audio como .mp4 para compatibilidad total en Android
+    const audioBlob = new Blob(chunks, { type: 'audio/mp4' });
+    zip.file(`Audio_${ts}.mp4`, audioBlob);
+
+    // Guardar PDF en Times New Roman
     const { jsPDF } = window.jspdf;
     const doc = new jsPDF();
     doc.setFont("times", "normal");
     doc.text("Transcripción de Clase", 20, 20);
-    const lines = doc.splitTextToSize(fullText, 170);
-    doc.text(lines, 20, 35);
+    const lines = doc.splitTextToSize(fullText || output.innerText, 170);
+    doc.text(lines, 20, 30);
     
-    zip.file(`Transcripcion_${ts}.pdf`, doc.output("blob"));
+    const pdfBlob = doc.output("blob");
+    zip.file(`Transcripcion_${ts}.pdf`, pdfBlob);
+
     const zipBlob = await zip.generateAsync({ type: "blob" });
     const a = document.createElement("a");
     a.href = URL.createObjectURL(zipBlob);
