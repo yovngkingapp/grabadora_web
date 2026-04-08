@@ -1,7 +1,108 @@
-<html>
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Grabadora y Transcriptor de Audio</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            padding: 10px;
+            background-color: #f4f4f4;
+            text-align: center;
+        }
+        h1 {
+            color: #333;
+        }
+        button {
+            background-color: #4CAF50;
+            color: white;
+            padding: 10px 15px;
+            border: none;
+            cursor: pointer;
+            margin: 5px;
+        }
+        button:hover {
+            background-color: #45a049;
+        }
+        #status {
+            margin-top: 20px;
+        }
+    </style>
+</head>
 <body>
-<h1>Recording and Transcription Support</h1>
-<p>We now support up to 4 hours of recording with effective transcription techniques, ensuring proper chunking that is optimized for mobile devices.</p>
-<!-- Additional content regarding mobile device chunking and recording functionality can be added here. -->
+    <h1>Grabadora y Transcriptor de Audio</h1>
+    <button id="startRecording">Iniciar Grabación</button>
+    <button id="stopRecording" disabled>Detener Grabación</button>
+    <button id="downloadFiles" disabled>Descargar Archivos</button>
+    <p id="status">Estado: Listo para grabar</p>
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+    <script>
+        let mediaRecorder;
+        let audioChunks = [];
+        let audioBlob;
+
+        document.getElementById('startRecording').onclick = async () => {
+            const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+            mediaRecorder = new MediaRecorder(stream);
+            mediaRecorder.start();
+            document.getElementById('status').innerText = "Estado: Grabando...";
+
+            mediaRecorder.ondataavailable = event => {
+                audioChunks.push(event.data);
+            };
+
+            mediaRecorder.onstop = async () => {
+                audioBlob = new Blob(audioChunks, { type: 'audio/mp3' });
+                audioChunks = [];
+                document.getElementById('status').innerText = "Estado: Grabación detenida.";
+                document.getElementById('downloadFiles').disabled = false;
+                // Aquí llamas a la función de transcripción
+                await transcribeAudio(audioBlob);
+            };
+
+            document.getElementById('stopRecording').disabled = false;
+            document.getElementById('stopRecording').onclick = () => {
+                mediaRecorder.stop();
+                document.getElementById('startRecording').disabled = true;
+                document.getElementById('stopRecording').disabled = true;
+            };
+        };
+
+        async function transcribeAudio(audioBlob) {
+            const formData = new FormData();
+            formData.append('file', audioBlob);
+            formData.append('language', 'es'); // Asegúrate de que esté en español
+
+            // Aquí deberías realizar la llamada a la API de Whisper
+            // Esto es un ejemplo, reemplaza con tu endpoint y clave API.
+            const response = await fetch('TU_ENDPOINT_AQUI', {
+                method: 'POST',
+                body: formData,
+                headers: {
+                    'Authorization': 'Bearer TU_CLAVE_API_AQUI',
+                }
+            });
+            const result = await response.json();
+            const transcript = result.transcript; // Asegúrate de que el campo sea correcto
+
+            // Aquí podrías almacenar la transcripción en un PDF
+            // Por simplicidad, este paso no está incluido en este ejemplo.
+            console.log(transcript);
+        }
+
+        document.getElementById('downloadFiles').onclick = async () => {
+            const zip = new JSZip();
+            zip.file("audio.mp3", audioBlob); // Asegúrate de tener el audio en formato blob
+            zip.file("transcript.txt", "Aquí va la transcripción"); // Reemplaza esto por la transcripción real
+
+            const content = await zip.generateAsync({ type: "blob" });
+            const link = document.createElement("a");
+            link.href = URL.createObjectURL(content);
+            link.download = "archivos.zip";
+            link.click();
+        };
+    </script>
 </body>
 </html>
